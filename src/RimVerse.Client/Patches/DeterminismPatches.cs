@@ -8,11 +8,11 @@ namespace RimVerse.Client.Patches
     [HarmonyPatch(typeof(Rand), nameof(Rand.Range), typeof(int), typeof(int))]
     public static class Patch_Rand_RangeInt
     {
-        static bool Prefix(int min, int max, ref int __result)
+        static bool Prefix(int minInclusive, int maxExclusive, ref int __result)
         {
             if (JointSessionManager.IsInSession)
             {
-                __result = JointSessionManager.SessionRNG.Next(min, max);
+                __result = JointSessionManager.SessionRNG.Next(minInclusive, maxExclusive);
                 return false;
             }
             return true;
@@ -22,11 +22,11 @@ namespace RimVerse.Client.Patches
     [HarmonyPatch(typeof(Rand), nameof(Rand.Range), typeof(float), typeof(float))]
     public static class Patch_Rand_RangeFloat
     {
-        static bool Prefix(float min, float max, ref float __result)
+        static bool Prefix(float minInclusive, float maxInclusive, ref float __result)
         {
             if (JointSessionManager.IsInSession)
             {
-                __result = (float)(JointSessionManager.SessionRNG.NextDouble() * (max - min) + min);
+                __result = (float)(JointSessionManager.SessionRNG.NextDouble() * (maxInclusive - minInclusive) + minInclusive);
                 return false;
             }
             return true;
