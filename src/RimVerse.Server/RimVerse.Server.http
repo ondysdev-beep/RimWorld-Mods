@@ -1,0 +1,6 @@
+@RimVerse.Server_HostAddress = http://localhost:5043
+
+GET {{RimVerse.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

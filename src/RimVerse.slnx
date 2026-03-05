@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="RimVerse.Client/RimVerse.Client.csproj" />
+  <Project Path="RimVerse.Server/RimVerse.Server.csproj" />
+  <Project Path="RimVerse.Shared/RimVerse.Shared.csproj" />
+</Solution>
