@@ -1,0 +1,41 @@
+# flyctl launch added from .gitignore
+# .NET
+**\bin
+**\obj
+**\*.user
+**\*.suo
+**\*.vs
+**\.vs
+**\*.DotSettings.user
+
+# Build outputs
+**\Assemblies
+**\*.dll
+**\*.pdb
+**\*.exe
+
+# IDE
+**\.idea
+**\*.swp
+**\*.sln.docstates
+
+# OS
+**\.DS_Store
+**\Thumbs.db
+**\desktop.ini
+
+# NuGet
+**\*.nupkg
+**\packages
+
+# Secrets
+**\appsettings.Production.json
+**\appsettings.Local.json
+
+# Logs
+**\*.log
+**\logs
+
+# Docker
+**\docker-compose.override.yml
+fly.toml

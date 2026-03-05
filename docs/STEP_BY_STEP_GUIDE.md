@@ -73,7 +73,7 @@
 ### Krok 7: Nastav secrets (hesla a connection string)
 1. Nastav databázový connection string (ten z kroku 2):
    ```powershell
-   fly secrets set ConnectionStrings__Database="TVŮJ_NEON_CONNECTION_STRING" --app rimverse-server
+   fly secrets set ConnectionStrings__Database="postgresql://neondb_owner:npg_F6YDEAszeV1R@ep-calm-haze-aglqj4a7-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" --app rimverse-server
    ```
    Například:
    ```powershell
@@ -82,7 +82,7 @@
 
 2. Nastav JWT secret (vymysli si silné heslo, min. 32 znaků):
    ```powershell
-   fly secrets set Jwt__Secret="TvojeSuperTajneHesloKtereMaNejmene32Znaku!" --app rimverse-server
+   fly secrets set Jwt__Secret="asd5sa4das86f74647da86aw4d6aswss" --app rimverse-server
    ```
 
 ### Krok 8: Ověř že server běží
