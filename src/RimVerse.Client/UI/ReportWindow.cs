@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Text;
 using RimVerse.Client.Compat;
 using RimVerse.Client.Core;
+using RimWorld;
 using UnityEngine;
 using Verse;
 

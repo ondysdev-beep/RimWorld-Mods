@@ -2,6 +2,7 @@ using HarmonyLib;
 using RimVerse.Client.Core;
 using RimVerse.Client.Network;
 using RimVerse.Client.UI;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -27,7 +28,7 @@ namespace RimVerse.Client.Patches
         }
     }
 
-    [HarmonyPatch(typeof(MainButtonsRoot), nameof(MainButtonsRoot.DoButtons))]
+    [HarmonyPatch(typeof(MainButtonsRoot), nameof(MainButtonsRoot.MainButtonsOnGUI))]
     public static class Patch_MainButtons
     {
         static void Postfix()
