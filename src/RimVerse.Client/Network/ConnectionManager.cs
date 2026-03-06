@@ -152,68 +152,43 @@ namespace RimVerse.Client.Network
             WebSocket?.SendChat(channel, content);
         }
 
-        private void HandleServerMessage(string type, string rawData)
+        private void HandleServerMessage(string target, string argsJson)
         {
             try
             {
-                var envelope = JsonConvert.DeserializeObject<ServerMessage>(rawData);
-                if (envelope == null) return;
+                var args = Newtonsoft.Json.Linq.JArray.Parse(argsJson);
 
-                switch (envelope.Type)
+                switch (target)
                 {
                     case "ReceiveChatMessage":
-                        var chat = JsonConvert.DeserializeObject<ChatMessageData>(envelope.Data);
-                        if (chat != null)
-                            OnChatMessageReceived?.Invoke(chat.SenderName, chat.Channel, chat.Content);
+                        if (args.Count >= 3)
+                            OnChatMessageReceived?.Invoke(args[0].ToString(), args[1].ToString(), args[2].ToString());
                         break;
 
                     case "WorldClockSync":
-                        var clock = JsonConvert.DeserializeObject<WorldClockData>(envelope.Data);
-                        if (clock != null)
-                            OnWorldClockSync?.Invoke(clock.WorldTick);
+                        if (args.Count >= 1)
+                            OnWorldClockSync?.Invoke((long)args[0]);
                         break;
 
                     case "PlayerJoined":
-                        var joined = JsonConvert.DeserializeObject<PlayerEventData>(envelope.Data);
-                        if (joined != null)
-                            Log.Message($"[RimVerse] {joined.DisplayName} joined the server");
+                        if (args.Count >= 2)
+                            Log.Message($"[RimVerse] {args[1]} joined the server");
                         break;
 
                     case "PlayerLeft":
-                        var left = JsonConvert.DeserializeObject<PlayerEventData>(rawData);
-                        if (left != null)
-                            Log.Message($"[RimVerse] {left.DisplayName} left the server");
+                        if (args.Count >= 2)
+                            Log.Message($"[RimVerse] {args[1]} left the server");
+                        break;
+
+                    default:
+                        Log.Message($"[RimVerse] Unhandled hub method: {target}");
                         break;
                 }
             }
             catch (Exception ex)
             {
-                Log.Warning($"[RimVerse] Failed to parse server message: {ex.Message}");
+                Log.Warning($"[RimVerse] Failed to parse server message '{target}': {ex.Message}");
             }
-        }
-
-        private class ServerMessage
-        {
-            public string Type { get; set; }
-            public string Data { get; set; }
-        }
-
-        private class ChatMessageData
-        {
-            public string SenderName { get; set; }
-            public string Channel { get; set; }
-            public string Content { get; set; }
-        }
-
-        private class WorldClockData
-        {
-            public long WorldTick { get; set; }
-        }
-
-        private class PlayerEventData
-        {
-            public string PlayerId { get; set; }
-            public string DisplayName { get; set; }
         }
     }
 

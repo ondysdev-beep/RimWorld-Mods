@@ -1,5 +1,10 @@
 using System;
+using System.IO;
+using System.Net;
+using System.Text;
 using System.Threading;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Verse;
 using WebSocketSharp;
 
@@ -7,13 +12,16 @@ namespace RimVerse.Client.Network
 {
     public class RimVerseWebSocket
     {
+        private const char RecordSeparator = '\x1e';
+
         private WebSocket _ws;
-        private readonly string _url;
+        private readonly string _serverUrl;
         private readonly string _authToken;
         private Timer _heartbeatTimer;
         private bool _intentionalClose;
+        private bool _handshakeCompleted;
 
-        public bool IsConnected => _ws != null && _ws.IsAlive;
+        public bool IsConnected => _ws != null && _ws.IsAlive && _handshakeCompleted;
 
         public event Action OnConnected;
         public event Action<string> OnDisconnected;
@@ -21,11 +29,7 @@ namespace RimVerse.Client.Network
 
         public RimVerseWebSocket(string serverUrl, string authToken)
         {
-            var wsUrl = serverUrl
-                .Replace("https://", "wss://")
-                .Replace("http://", "ws://")
-                .TrimEnd('/');
-            _url = wsUrl + "/hubs/game?access_token=" + Uri.EscapeDataString(authToken);
+            _serverUrl = serverUrl.TrimEnd('/');
             _authToken = authToken;
         }
 
@@ -34,18 +38,23 @@ namespace RimVerse.Client.Network
             try
             {
                 _intentionalClose = false;
-                _ws = new WebSocket(_url);
+                _handshakeCompleted = false;
+
+                var wsUrl = Negotiate();
+                if (wsUrl == null) return;
+
+                _ws = new WebSocket(wsUrl);
 
                 _ws.OnOpen += (sender, e) =>
                 {
-                    Log.Message("[RimVerse] WebSocket connected");
-                    StartHeartbeat();
-                    OnConnected?.Invoke();
+                    Log.Message("[RimVerse] WebSocket transport open, sending SignalR handshake...");
+                    var handshake = JsonConvert.SerializeObject(new { protocol = "json", version = 1 }) + RecordSeparator;
+                    _ws.Send(handshake);
                 };
 
                 _ws.OnMessage += (sender, e) =>
                 {
-                    HandleMessage(e.Data);
+                    HandleRawFrame(e.Data);
                 };
 
                 _ws.OnError += (sender, e) =>
@@ -56,6 +65,7 @@ namespace RimVerse.Client.Network
                 _ws.OnClose += (sender, e) =>
                 {
                     Log.Message($"[RimVerse] WebSocket closed: {e.Reason}");
+                    _handshakeCompleted = false;
                     StopHeartbeat();
 
                     if (!_intentionalClose)
@@ -70,12 +80,57 @@ namespace RimVerse.Client.Network
             catch (Exception ex)
             {
                 Log.Error($"[RimVerse] WebSocket connect failed: {ex.Message}");
+                if (!_intentionalClose)
+                    ScheduleReconnect();
+            }
+        }
+
+        private string Negotiate()
+        {
+            try
+            {
+                var negotiateUrl = _serverUrl + "/hubs/game/negotiate?negotiateVersion=1";
+                var request = (HttpWebRequest)WebRequest.Create(negotiateUrl);
+                request.Method = "POST";
+                request.ContentType = "application/json";
+                request.ContentLength = 0;
+                request.Timeout = 10000;
+                request.Headers["Authorization"] = "Bearer " + _authToken;
+
+                using (var response = (HttpWebResponse)request.GetResponse())
+                using (var reader = new StreamReader(response.GetResponseStream()))
+                {
+                    var json = reader.ReadToEnd();
+                    var negotiateResponse = JObject.Parse(json);
+
+                    var connectionToken = negotiateResponse["connectionToken"]?.ToString();
+                    if (string.IsNullOrEmpty(connectionToken))
+                    {
+                        Log.Error("[RimVerse] SignalR negotiate: no connectionToken in response");
+                        return null;
+                    }
+
+                    var wsUrl = _serverUrl
+                        .Replace("https://", "wss://")
+                        .Replace("http://", "ws://");
+                    wsUrl += "/hubs/game?id=" + Uri.EscapeDataString(connectionToken)
+                          + "&access_token=" + Uri.EscapeDataString(_authToken);
+
+                    Log.Message("[RimVerse] SignalR negotiate successful");
+                    return wsUrl;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimVerse] SignalR negotiate failed: {ex.Message}");
+                return null;
             }
         }
 
         public void Disconnect()
         {
             _intentionalClose = true;
+            _handshakeCompleted = false;
             StopHeartbeat();
             if (_ws != null && _ws.IsAlive)
             {
@@ -83,33 +138,79 @@ namespace RimVerse.Client.Network
             }
         }
 
-        public void Send(string messageType, string jsonPayload)
+        public void Invoke(string method, params object[] args)
         {
             if (!IsConnected) return;
 
-            var envelope = $"{{\"type\":\"{messageType}\",\"data\":{jsonPayload}}}";
-            _ws.SendAsync(envelope, completed =>
+            var msg = new
+            {
+                type = 1,
+                target = method,
+                arguments = args
+            };
+            var json = JsonConvert.SerializeObject(msg) + RecordSeparator;
+            _ws.SendAsync(json, completed =>
             {
                 if (!completed)
-                    Log.Warning($"[RimVerse] Failed to send message: {messageType}");
+                    Log.Warning($"[RimVerse] Failed to invoke: {method}");
             });
         }
 
         public void SendChat(string channel, string content)
         {
-            var json = $"{{\"channel\":\"{channel}\",\"content\":\"{EscapeJson(content)}\"}}";
-            Send("SendChatMessage", json);
+            Invoke("SendChatMessage", channel, content);
         }
 
-        private void HandleMessage(string rawData)
+        private void HandleRawFrame(string rawData)
         {
-            try
+            if (string.IsNullOrEmpty(rawData)) return;
+
+            var messages = rawData.Split(new[] { RecordSeparator }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var message in messages)
             {
-                OnMessageReceived?.Invoke("raw", rawData);
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"[RimVerse] Error handling message: {ex.Message}");
+                try
+                {
+                    var obj = JObject.Parse(message);
+                    var msgType = obj["type"]?.Value<int>() ?? 0;
+
+                    if (!_handshakeCompleted)
+                    {
+                        if (obj["error"] != null)
+                        {
+                            Log.Error($"[RimVerse] SignalR handshake error: {obj["error"]}");
+                            return;
+                        }
+                        _handshakeCompleted = true;
+                        Log.Message("[RimVerse] SignalR handshake completed");
+                        StartHeartbeat();
+                        OnConnected?.Invoke();
+                        return;
+                    }
+
+                    switch (msgType)
+                    {
+                        case 1: // Invocation
+                            var target = obj["target"]?.ToString();
+                            var args = obj["arguments"]?.ToString();
+                            if (!string.IsNullOrEmpty(target))
+                                OnMessageReceived?.Invoke(target, args ?? "[]");
+                            break;
+
+                        case 6: // Ping
+                            var pong = JsonConvert.SerializeObject(new { type = 6 }) + RecordSeparator;
+                            _ws.Send(pong);
+                            break;
+
+                        case 7: // Close
+                            var reason = obj["error"]?.ToString() ?? "Server closed connection";
+                            Log.Warning($"[RimVerse] Server closing: {reason}");
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"[RimVerse] Error parsing SignalR message: {ex.Message}");
+                }
             }
         }
 
@@ -119,7 +220,8 @@ namespace RimVerse.Client.Network
             {
                 if (IsConnected)
                 {
-                    Send("Heartbeat", "{}");
+                    var ping = JsonConvert.SerializeObject(new { type = 6 }) + RecordSeparator;
+                    _ws.Send(ping);
                 }
             }, null, 15000, 15000);
         }
@@ -140,15 +242,6 @@ namespace RimVerse.Client.Network
                     Connect();
                 }
             }, null, 5000, Timeout.Infinite);
-        }
-
-        private static string EscapeJson(string s)
-        {
-            return s?.Replace("\\", "\\\\")
-                     .Replace("\"", "\\\"")
-                     .Replace("\n", "\\n")
-                     .Replace("\r", "\\r")
-                     .Replace("\t", "\\t") ?? "";
         }
     }
 }
