@@ -115,6 +115,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("SignalR");
+app.UseWebSockets();
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -45,6 +45,14 @@ namespace RimVerse.Client.Network
 
                 _ws = new WebSocket(wsUrl);
 
+                if (wsUrl.StartsWith("wss://"))
+                {
+                    _ws.SslConfiguration.EnabledSslProtocols =
+                        System.Security.Authentication.SslProtocols.Tls12;
+                    _ws.SslConfiguration.ServerCertificateValidationCallback =
+                        (sender2, certificate, chain, sslPolicyErrors) => true;
+                }
+
                 _ws.OnOpen += (sender, e) =>
                 {
                     Log.Message("[RimVerse] WebSocket transport open, sending SignalR handshake...");
@@ -60,6 +68,8 @@ namespace RimVerse.Client.Network
                 _ws.OnError += (sender, e) =>
                 {
                     Log.Error($"[RimVerse] WebSocket error: {e.Message}");
+                    if (e.Exception != null)
+                        Log.Error($"[RimVerse] WebSocket exception: {e.Exception}");
                 };
 
                 _ws.OnClose += (sender, e) =>
